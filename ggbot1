@@ -1,113 +1,734 @@
-import json
-import os
-from telegram import Update
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    ContextTypes, filters
-)
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GGPoint Маркетплейс (Web)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+            color: #1f2937;
+        }
+        .card {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        /* Custom scrollbar for chat */
+        #chat-history-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-history-container::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1; /* Gray-300 */
+            border-radius: 4px;
+        }
+        .chat-bubble-self {
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+            border-bottom-right-radius: 0;
+        }
+        .chat-bubble-other {
+            background-color: #e5e7eb; /* Gray-200 */
+            color: #1f2937;
+            border-bottom-left-radius: 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 sm:p-8">
 
-# === НАСТРОЙКИ ===
-BOT_TOKEN = "7890915663:AAG_VLDpMLMNr8YCuhnx61PxQdAPNXxxPg8"
-GROUP_CHAT_ID = "@r2wrfq"  # ← теперь как username
-ADMIN_ID = 6040186314
+    <div id="app" class="max-w-4xl mx-auto">
+        <!-- HEADER & AUTH STATUS -->
+        <header class="bg-white p-4 rounded-xl card mb-4 flex justify-between items-center flex-wrap">
+            <h1 class="text-3xl font-bold text-indigo-700">GGPoint Маркет</h1>
+            <div id="auth-status" class="text-sm text-gray-600 mt-2 sm:mt-0">
+                Загрузка...
+            </div>
+        </header>
+        
+        <!-- WELCOME BANNER / ПРИВЕТСТВИЕ -->
+        <div class="bg-indigo-500 text-white p-5 rounded-xl card mb-6">
+            <h2 class="text-xl font-bold mb-1">Добро пожаловать в GGPoint!</h2>
+            <p class="text-sm opacity-90">Ваш безопасный маркетплейс с системой эскроу, интегрированный прямо в Telegram.</p>
+        </div>
 
-DB_FILE = "orders.json"
-if not os.path.exists(DB_FILE):
-    with open(DB_FILE, "w") as f:#
-        json.dump({}, f)
+        <!-- NAVIGATION -->
+        <nav id="navigation" class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-8">
+            <button onclick="setView('market')" class="nav-btn bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-150 shadow-md">
+                🛍️ Маркетплейс
+            </button>
+            <button onclick="setView('buyer_orders')" class="nav-btn bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-150 shadow-md">
+                🛒 Мои Заказы (Покупатель)
+            </button>
+            <button onclick="setView('seller_listings')" class="nav-btn bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-150 shadow-md">
+                💼 Мои Товары (Продавец)
+            </button>
+        </nav>
 
-def load_orders():
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+        <!-- MAIN CONTENT AREA -->
+        <div id="content">
+            <!-- Content will be injected here -->
+        </div>
 
-def save_orders(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        <!-- MODALS -->
+        <!-- 2. Generic Message Modal (for notifications/errors) -->
+        <div id="message-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
+            <div class="bg-white p-6 rounded-xl card w-full max-w-sm text-center">
+                <h2 id="modal-title" class="text-xl font-bold mb-3"></h2>
+                <p id="modal-message" class="mb-5 text-gray-600"></p>
+                <button onclick="document.getElementById('message-modal').classList.add('hidden')" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-3 rounded-lg transition duration-150">
+                    Закрыть
+                </button>
+            </div>
+        </div>
 
-# === /start ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Привет!\n"
-        "Это *официальный бот GGPoint*.\n"
-        "Здесь вы можете следить за статусом своих заказов.\n\n"
-        "Введите команду:\n"
-        "`/status [номер_заказа]` — чтобы узнать последний статус.",
-        parse_mode="Markdown"
-    )
+        <!-- 3. Order Details/Chat Modal -->
+        <div id="order-chat-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
+            <div class="bg-white p-6 rounded-xl card w-full max-w-xl max-h-[90vh] flex flex-col">
+                <h2 id="chat-order-title" class="text-xl font-bold mb-4 border-b pb-2">Детали Заказа</h2>
+                
+                <div id="chat-history-container" class="flex-grow overflow-y-auto mb-4 p-3 border rounded-lg bg-gray-50 space-y-3 min-h-[200px] max-h-[400px]">
+                    <!-- Chat messages will be injected here -->
+                </div>
+                
+                <div class="border-t pt-4">
+                    <input type="text" id="chat-message-input" placeholder="Напишите сообщение продавцу/покупателю..." class="w-full p-3 border border-gray-300 rounded-lg mb-3 focus:ring-indigo-500 focus:border-indigo-500">
+                    <button id="send-chat-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-3 rounded-lg transition duration-150" onclick="sendChatMessage()">
+                        Отправить
+                    </button>
+                </div>
 
-# === /status ===
-async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    orders = load_orders()
-    if len(context.args) != 1 or not context.args[0].isdigit():
-        await update.message.reply_text("❗ Используйте команду так: /status [номер_заказа]")
-        return
+                <button onclick="document.getElementById('order-chat-modal').classList.add('hidden'); currentOrder = null;" class="mt-4 text-gray-500 hover:text-gray-700 py-2">
+                    Закрыть
+                </button>
+            </div>
+        </div>
 
-    order_id = context.args[0]
-    user_id = update.message.from_user.id
+    </div>
 
-    if order_id in orders:
-        orders[order_id]["users"].append(user_id)
-        orders[order_id]["users"] = list(set(orders[order_id]["users"]))
-        save_orders(orders)
-        status = orders[order_id]["status"]
-        await update.message.reply_text(f"📦 Статус заказа #{order_id}: {status}")
-    else:
-        orders[order_id] = {"status": "Нет данных", "users": [user_id]}
-        save_orders(orders)
-        await update.message.reply_text(f"📦 Статус заказа #{order_id}: Нет данных")
+    <!-- FIREBASE AND JS LOGIC -->
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc, serverTimestamp, updateDoc, arrayUnion, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-# === Обработка сообщений в группе ===
-async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.chat.username != GROUP_CHAT_ID.lstrip("@"):
-        return
+        // --- EXTERNAL API KEY ---
+        // !!! ЗАМЕНИТЕ "YOUR_EXTERNAL_API_TOKEN_HERE" НА ВАШ РЕАЛЬНЫЙ ТОКЕН ПРИ ДЕПЛОЕ !!!
+        const API_KEY = "8437913597:AAH6wHkEGEnqnMaaohM1bisPxWBIEsEQvIQ";
+        console.log("Using API Key Placeholder:", API_KEY.substring(0, 10) + '...');
 
-    text = update.message.text.strip()
-    if not text.startswith("#"):
-        return
+        // Global Firebase and App State
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+        let userName = 'Anonymous';
+        let isAuthReady = false;
 
-    parts = text[1:].split(" ", 1)
-    if len(parts) != 2 or not parts[0].isdigit():
-        return
+        let allSellers = {};
+        let allProducts = {};
+        let allOrders = {};
 
-    order_id, new_status = parts
-    orders = load_orders()
+        let currentView = 'market';
+        let currentOrder = null;
 
-    if new_status.lower().strip() == "товар отдан":
-        if order_id in orders:
-            del orders[order_id]
-            save_orders(orders)
-            await update.message.reply_text(f"🗑 Заказ #{order_id} удалён (товар отдан)")
-        return
+        // --- FIREBASE SETUP ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-    if order_id not in orders:
-        orders[order_id] = {"status": "", "users": []}
+        // Collections Paths
+        const SELLERS_PATH = `artifacts/${appId}/public/data/sellers`;
+        const PRODUCTS_PATH = `artifacts/${appId}/public/data/products`;
+        const ORDERS_PATH = `artifacts/${appId}/public/data/orders`;
 
-    orders[order_id]["status"] = new_status
-    save_orders(orders)
+        // Utility to show messages
+        function showModal(title, message) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            document.getElementById('message-modal').classList.remove('hidden');
+        }
+        
+        // Function to handle initial auth and setup listeners
+        async function initializeFirebase() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('debug'); // Enable Firestore logging
 
-    for user_id in orders[order_id]["users"]:
-        try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"🔔 Новый статус для заказа #{order_id}:\n{new_status}"
-            )
-        except Exception as e:
-            print(f"❌ Ошибка при отправке пользователю {user_id}: {e}")
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userName = user.displayName || 'Anonymous User';
+                    } else {
+                        // Attempt sign in with custom token first
+                         if (initialAuthToken) {
+                            try {
+                                const cred = await signInWithCustomToken(auth, initialAuthToken);
+                                userId = cred.user.uid;
+                                userName = cred.user.displayName || 'Telegram User';
+                            } catch (error) {
+                                console.warn("Custom token sign-in failed, falling back to anonymous:", error);
+                                const anonymousUser = await signInAnonymously(auth);
+                                userId = anonymousUser.user.uid;
+                                userName = 'Anonymous User';
+                            }
+                        } else {
+                            // Fallback to anonymous sign-in if no custom token is provided
+                            const anonymousUser = await signInAnonymously(auth);
+                            userId = anonymousUser.user.uid;
+                            userName = 'Anonymous User';
+                        }
+                    }
+                    
+                    isAuthReady = true;
+                    updateAuthStatus();
+                    setupFirestoreListeners();
+                    setView(currentView); // Render initial view
+                });
 
-    await update.message.reply_text(f"✅ Статус заказа #{order_id} сохранён")
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                showModal("Ошибка Инициализации", "Не удалось запустить Firebase. Проверьте консоль.");
+            }
+        }
 
-# === ЗАПУСК ===
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+        // --- UI RENDER FUNCTIONS ---
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("status", check_status))
+        function updateAuthStatus() {
+            const userRole = allSellers[userId] ? 'Продавец' : 'Покупатель';
+            const statusText = `👤 ID: ${userId.substring(0, 8)}... | Роль: ${userRole}`;
+            document.getElementById('auth-status').innerHTML = statusText;
+        }
 
-    # Обработка сообщений в любом чате, но фильтруем по username в коде
-    app.add_handler(MessageHandler(filters.TEXT, handle_group_message))
+        function setView(view) {
+            currentView = view;
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML = ''; // Clear content
 
-    print("✅ Бот запущен")
-    app.run_polling()
+            if (!isAuthReady) {
+                contentDiv.innerHTML = '<p class="text-center text-lg mt-10">Загрузка данных...</p>';
+                return;
+            }
 
-if __name__ == "__main__":
-    main()
+            if (view === 'market') {
+                renderMarketplace(contentDiv);
+            } else if (view === 'seller_listings') {
+                if (allSellers[userId]) {
+                    renderSellerDashboard(contentDiv);
+                } else {
+                    renderRegistrationPrompt(contentDiv);
+                }
+            } else if (view === 'buyer_orders') {
+                renderBuyerDashboard(contentDiv);
+            }
+        }
+
+        function renderMarketplace(container) {
+            let html = '<h2 class="text-2xl font-bold mb-6 text-indigo-700">🛍️ Маркетплейс</h2>';
+
+            const products = Object.values(allProducts).sort((a, b) => (b.date_added?.toMillis() || 0) - (a.date_added?.toMillis() || 0));
+
+            if (products.length === 0) {
+                html += '<div class="p-6 bg-white rounded-xl card text-center text-gray-500">К сожалению, пока на маркетплейсе нет активных товаров.</div>';
+            } else {
+                html += '<div class="grid gap-6 md:grid-cols-2">';
+                products.forEach(p => {
+                    const sellerName = allSellers[p.seller_id]?.username || 'Неизвестный продавец';
+                    html += `
+                        <div class="bg-white p-5 rounded-xl card hover:shadow-lg transition duration-200 border border-gray-100">
+                            <div class="mb-3">
+                                <img src="${p.photo_url || 'https://placehold.co/400x200/4f46e5/ffffff?text=Product'}" 
+                                     alt="${p.title}" class="w-full h-32 object-cover rounded-lg mb-3">
+                            </div>
+                            <h3 class="text-xl font-semibold text-gray-800">${p.title}</h3>
+                            <p class="text-sm text-gray-500 mb-2">Продавец: ${sellerName}</p>
+                            <p class="text-gray-700 text-sm mb-3">${p.description.substring(0, 80)}${p.description.length > 80 ? '...' : ''}</p>
+                            <div class="flex justify-between items-center">
+                                <span class="text-2xl font-bold text-green-600">${p.price} у.е.</span>
+                                ${p.seller_id === userId ? 
+                                    `<span class="text-sm font-medium text-red-500 bg-red-100 p-2 rounded-lg">Это Ваш товар</span>` :
+                                    `<button onclick="buyProduct('${p.id}', ${p.price})" class="bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-2 px-4 rounded-lg transition duration-150">
+                                        Купить (Эскроу)
+                                    </button>`
+                                }
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            container.innerHTML = html;
+        }
+
+        function renderBuyerDashboard(container) {
+            let html = '<h2 class="text-2xl font-bold mb-6 text-blue-700">🛒 Ваши Заказы</h2>';
+
+            const buyerOrders = Object.values(allOrders)
+                .filter(o => o.buyer_id === userId)
+                .sort((a, b) => (b.date_created?.toMillis() || 0) - (a.date_created?.toMillis() || 0));
+
+            if (buyerOrders.length === 0) {
+                html += '<div class="p-6 bg-white rounded-xl card text-center text-gray-500">У вас пока нет активных или завершенных заказов.</div>';
+            } else {
+                buyerOrders.forEach(o => {
+                    const productTitle = allProducts[o.product_id]?.title || 'Неизвестный товар';
+                    const sellerName = allSellers[o.seller_id]?.username || 'Неизвестный продавец';
+                    let statusClass = '';
+                    let actionButton = '';
+
+                    if (o.status === 'Funds Locked') {
+                        statusClass = 'text-yellow-600 bg-yellow-100';
+                        actionButton = `
+                            <button onclick="openChatModal('${o.id}')" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-3 rounded-lg">Открыть Чат</button>
+                            <button onclick="confirmCompletion('${o.id}')" class="bg-green-500 hover:bg-green-600 text-white text-sm py-2 px-3 rounded-lg">Получено</button>
+                        `;
+                    } else if (o.status === 'Completed') {
+                        statusClass = 'text-green-600 bg-green-100';
+                        actionButton = `
+                            <button onclick="openChatModal('${o.id}')" class="bg-gray-400 text-white text-sm py-2 px-3 rounded-lg" disabled>Чат (Завершён)</button>
+                        `;
+                    }
+
+                    html += `
+                        <div class="bg-white p-4 rounded-lg mb-4 flex justify-between items-center flex-wrap card border-l-4 border-blue-500">
+                            <div class="flex-1 min-w-0 pr-4">
+                                <p class="font-semibold text-gray-800">${productTitle} (${o.price} у.е.)</p>
+                                <p class="text-sm text-gray-500 mb-1">Продавец: ${sellerName}</p>
+                                <span class="text-xs font-medium p-1 rounded-full ${statusClass}">Статус: ${o.status}</span>
+                            </div>
+                            <div class="flex space-x-2 mt-3 sm:mt-0">
+                                ${actionButton}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            container.innerHTML = html;
+        }
+
+        function renderRegistrationPrompt(container) {
+            // !!! ЗАМЕНИТЕ ЭТО НА ИМЯ ВАШЕГО БОТА ДЛЯ РЕГИСТРАЦИИ !!!
+            const EXTERNAL_BOT_USERNAME = '8430707595:AAEz_0kd1141t5JGLf27ehKEIWA6yrqwpgA'; 
+            
+            // Формируем ссылку для перехода в Telegram, передавая ID текущего пользователя
+            const registrationLink = `tg://resolve?domain=${EXTERNAL_BOT_USERNAME}&start=register_seller_${userId}`;
+
+            container.innerHTML = `
+                <div class="p-8 bg-white rounded-xl card text-center border-4 border-dashed border-red-200">
+                    <h2 class="text-2xl font-bold mb-4 text-red-700">💼 Вы не являетесь Продавцом</h2>
+                    <p class="mb-6 text-gray-600">Чтобы получить доступ к панели управления товарами, вам необходимо пройти регистрацию через наш отдельный бот.</p>
+                    
+                    <a href="${registrationLink}" target="_blank" class="inline-block w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-lg transition duration-150 shadow-md">
+                        🔗 Зарегистрироваться через @${EXTERNAL_BOT_USERNAME}
+                    </a>
+                    <p class="mt-4 text-xs text-gray-500">Ваш ID пользователя (${userId.substring(0, 8)}...) будет передан боту для регистрации.</p>
+                </div>
+            `;
+        }
+
+        function renderSellerDashboard(container) {
+            let html = '<h2 class="text-2xl font-bold mb-6 text-green-700">💼 Панель Продавца</h2>';
+            
+            // 1. New Product Button
+            html += `
+                <button onclick="renderNewProductForm()" class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-150 shadow-md mb-8">
+                    ✨ Добавить Новый Товар
+                </button>
+            `;
+
+            // 2. Active Orders (Escrow)
+            const sellerOrders = Object.values(allOrders).filter(o => o.seller_id === userId && o.status === 'Funds Locked');
+            html += '<div class="mb-8 p-5 bg-yellow-50 border-l-4 border-yellow-500 rounded-xl">';
+            html += '<h3 class="text-xl font-bold mb-4 text-yellow-800">💰 Активные Заказы (Эскроу)</h3>';
+            if (sellerOrders.length === 0) {
+                html += '<p class="text-gray-700">Нет активных заказов, ожидающих выполнения.</p>';
+            } else {
+                sellerOrders.forEach(o => {
+                    const productTitle = allProducts[o.product_id]?.title || 'Неизвестный товар';
+                    const buyerName = o.buyer_name || `Покупатель ID: ${o.buyer_id.substring(0, 8)}...`;
+                    html += `
+                        <div class="bg-white p-4 rounded-lg mb-3 flex justify-between items-center card">
+                            <div>
+                                <p class="font-semibold text-gray-800">${productTitle} (<span class="text-green-600">${o.price} у.е.</span>)</p>
+                                <p class="text-sm text-gray-500">Покупатель: ${buyerName} | Статус: <span class="text-red-500">Заморожены</span></p>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button onclick="openChatModal('${o.id}')" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-3 rounded-lg">Чат</button>
+                                <button onclick="completeOrder('${o.id}')" class="bg-green-500 hover:bg-green-600 text-white text-sm py-2 px-3 rounded-lg">Завершить (Перевести)</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            html += '</div>';
+
+            // 3. My Listings
+            const sellerProducts = Object.values(allProducts).filter(p => p.seller_id === userId);
+            html += '<div class="p-5 bg-white rounded-xl card">';
+            html += '<h3 class="text-xl font-bold mb-4 text-gray-700">📦 Ваши Товары</h3>';
+            if (sellerProducts.length === 0) {
+                html += '<p class="text-gray-700">У вас пока нет активных товаров.</p>';
+            } else {
+                sellerProducts.forEach(p => {
+                    html += `
+                        <div class="border-b last:border-b-0 py-3 flex justify-between items-center">
+                            <p class="font-medium text-gray-800">${p.title} <span class="text-green-600">(${p.price} у.е.)</span></p>
+                            <div class="flex space-x-2 items-center">
+                                <p class="text-sm text-gray-500">ID: ${p.id.substring(0, 8)}</p>
+                                <button onclick="deleteProduct('${p.id}')" class="text-red-400 hover:text-red-600 text-sm">Удалить</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            html += '</div>';
+
+            container.innerHTML = html;
+        }
+
+        function renderNewProductForm() {
+            const container = document.getElementById('content');
+            container.innerHTML = `
+                <div class="p-6 bg-white rounded-xl card">
+                    <h3 class="text-2xl font-bold mb-6 text-green-700">✍️ Добавить Товар</h3>
+                    <div class="space-y-4">
+                        <input type="text" id="product-title" placeholder="Название товара (например, Уникальный Скин)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        <textarea id="product-description" placeholder="Подробное описание и условия сделки..." rows="4" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500"></textarea>
+                        <input type="number" id="product-price" placeholder="Цена (только число, у.е.)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        <input type="text" id="product-photo-url" value="https://placehold.co/400x200/4f46e5/ffffff?text=Item" placeholder="URL Фото (для симуляции)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+                        
+                        <button onclick="addNewProduct()" class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 rounded-lg transition duration-150">
+                            Опубликовать Товар
+                        </button>
+                        <button onclick="setView('seller_listings')" class="w-full mt-2 text-gray-500 hover:text-gray-700 py-3 border-t">
+                            Отмена
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // --- FIREBASE LISTENERS (REAL-TIME UPDATES) ---
+
+        function setupFirestoreListeners() {
+            // Listen to Sellers
+            onSnapshot(collection(db, SELLERS_PATH), (snapshot) => {
+                allSellers = {};
+                snapshot.forEach(doc => {
+                    allSellers[doc.id] = {...doc.data(), id: doc.id};
+                });
+                updateAuthStatus();
+                if (currentView === 'seller_listings') setView(currentView);
+            }, (error) => console.error("Error listening to sellers:", error));
+
+            // Listen to Products
+            onSnapshot(collection(db, PRODUCTS_PATH), (snapshot) => {
+                allProducts = {};
+                snapshot.forEach(doc => {
+                    allProducts[doc.id] = {...doc.data(), id: doc.id};
+                });
+                if (currentView === 'market' || currentView === 'seller_listings') setView(currentView);
+            }, (error) => console.error("Error listening to products:", error));
+
+            // Listen to Orders
+            onSnapshot(collection(db, ORDERS_PATH), (snapshot) => {
+                allOrders = {};
+                snapshot.forEach(doc => {
+                    allOrders[doc.id] = {...doc.data(), id: doc.id};
+                });
+                if (currentView === 'buyer_orders' || currentView === 'seller_listings') setView(currentView);
+                
+                // Update chat modal if it's open
+                if (currentOrder && allOrders[currentOrder.id]) {
+                    currentOrder = allOrders[currentOrder.id]; // Update current order object
+                    renderChatHistory(currentOrder);
+                }
+            }, (error) => console.error("Error listening to orders:", error));
+        }
+
+        // --- SELLER LOGIC ---
+
+        async function addNewProduct() {
+            if (!allSellers[userId]) return showModal("Ошибка", "Вы должны быть зарегистрированы как продавец.");
+            
+            const title = document.getElementById('product-title').value.trim();
+            const description = document.getElementById('product-description').value.trim();
+            const price = parseInt(document.getElementById('product-price').value, 10);
+            const photoUrl = document.getElementById('product-photo-url').value.trim() || 'https://placehold.co/400x200/4f46e5/ffffff?text=Item';
+
+            if (!title || !description || isNaN(price) || price <= 0) {
+                return showModal("Ошибка", "Пожалуйста, заполните все поля корректно (цена должна быть > 0).");
+            }
+
+            try {
+                await addDoc(collection(db, PRODUCTS_PATH), {
+                    seller_id: userId,
+                    title: title,
+                    description: description,
+                    price: price,
+                    photo_url: photoUrl,
+                    date_added: serverTimestamp()
+                });
+                showModal("Успех!", `Товар "${title}" успешно добавлен на маркетплейс.`);
+                setView('seller_listings');
+            } catch (e) {
+                console.error("Error adding product: ", e);
+                showModal("Ошибка", "Не удалось добавить товар.");
+            }
+        }
+        
+        async function deleteProduct(productId) {
+            const product = allProducts[productId];
+            if (!product || product.seller_id !== userId) {
+                 return showModal("Ошибка", "Товар не найден или у вас нет прав на его удаление.");
+            }
+
+            // Simple confirmation simulation
+            showModal("Подтверждение Удаления", `Вы уверены, что хотите удалить товар "${product.title}"? Это действие необратимо.`);
+            // In a real app, this would use a custom modal with Yes/No buttons.
+            
+            try {
+                await deleteDoc(doc(db, PRODUCTS_PATH, productId));
+                // showModal("Успех!", `Товар "${product.title}" удален.`); // Modal already open, avoid overlap
+            } catch (e) {
+                console.error("Error deleting product:", e);
+                showModal("Ошибка", "Не удалось удалить товар.");
+            }
+        }
+
+
+        // --- BUYER LOGIC ---
+
+        async function buyProduct(productId, price) {
+            const product = allProducts[productId];
+            if (!product) return showModal("Ошибка", "Товар не найден.");
+            if (product.seller_id === userId) return showModal("Ошибка", "Вы не можете купить собственный товар.");
+            
+            try {
+                // Determine buyer name for initial chat message
+                const buyerName = allSellers[userId]?.username || `Покупатель ${userId.substring(0, 5)}`;
+
+                await addDoc(collection(db, ORDERS_PATH), {
+                    product_id: productId,
+                    seller_id: product.seller_id,
+                    buyer_id: userId,
+                    buyer_name: buyerName, // Store buyer name for easier display
+                    price: price,
+                    status: 'Funds Locked', // ESCROW: Funds are now locked
+                    chat: [{
+                        sender_id: userId,
+                        sender_name: buyerName,
+                        message: `Здравствуйте! Я купил Ваш товар "${product.title}" за ${price} у.е. Ожидаю инструкции для передачи.`,
+                        timestamp: serverTimestamp()
+                    }],
+                    date_created: serverTimestamp()
+                });
+
+                showModal("Покупка Успешна!", `Вы приобрели "${product.title}". ${price} у.е. заморожены (Эскроу). Продавец уведомлен, вы можете начать чат.`);
+                setView('buyer_orders');
+            } catch (e) {
+                console.error("Error creating order: ", e);
+                showModal("Ошибка Покупки", "Не удалось создать заказ.");
+            }
+        }
+        
+        async function confirmCompletion(orderId) {
+             const orderRef = doc(db, ORDERS_PATH, orderId);
+             if (allOrders[orderId]?.buyer_id !== userId) {
+                return showModal("Ошибка Доступа", "Это не Ваш заказ.");
+            }
+            
+            // In a real app, this would be a custom confirmation modal.
+            showModal("Подтверждение Получения", "Вы уверены, что товар получен и соответствует описанию? Нажатие 'Закрыть' в этом окне ИМИТИРУЕТ подтверждение и разморозит средства продавцу.");
+
+            try {
+                // Simulating buyer confirmation releasing funds
+                await runTransaction(db, async (transaction) => {
+                    const orderDoc = await transaction.get(orderRef);
+
+                    if (!orderDoc.exists()) throw "Order does not exist!";
+                    if (orderDoc.data().status !== 'Funds Locked') throw "Order is not in 'Funds Locked' status.";
+
+                    transaction.update(orderRef, {
+                        status: 'Completed',
+                        date_completed: serverTimestamp(),
+                        chat: arrayUnion({
+                            sender_id: 'SYSTEM',
+                            sender_name: 'Система Эскроу',
+                            message: `Покупатель подтвердил получение товара. ${orderDoc.data().price} у.е. переведены Продавцу. Сделка завершена.`,
+                            timestamp: serverTimestamp()
+                        })
+                    });
+                });
+            } catch (e) {
+                 console.error("Error completing order:", e);
+                 showModal("Ошибка Завершения", "Не удалось завершить заказ. " + e);
+            }
+        }
+
+
+        // --- ESCROW/ORDER COMPLETION LOGIC (Seller Side) ---
+
+        async function completeOrder(orderId) {
+            const orderRef = doc(db, ORDERS_PATH, orderId);
+            
+            if (allOrders[orderId]?.seller_id !== userId) {
+                return showModal("Ошибка Доступа", "Вы не являетесь продавцом этого заказа.");
+            }
+            
+            showModal("Завершение Сделки", "Вы уверены, что покупатель подтвердил получение? Нажатие 'Закрыть' в этом окне ИМИТИРУЕТ РАЗМОРОЗКУ средств.");
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const orderDoc = await transaction.get(orderRef);
+
+                    if (!orderDoc.exists()) throw "Order does not exist!";
+                    if (orderDoc.data().status !== 'Funds Locked') throw `Order status is already ${orderDoc.data().status}.`;
+
+                    // 1. Update order status and release funds (simulated)
+                    transaction.update(orderRef, {
+                        status: 'Completed',
+                        date_completed: serverTimestamp(),
+                        // Simulate fund release (add message to chat)
+                        chat: arrayUnion({
+                            sender_id: 'SYSTEM',
+                            sender_name: 'Система Эскроу',
+                            message: `Сделка завершена! ${orderDoc.data().price} у.е. переведены Продавцу. Покупателю отправлено уведомление.`,
+                            timestamp: serverTimestamp()
+                        })
+                    });
+                });
+                openChatModal(orderId); // Show the chat to confirm the system message
+            } catch (e) {
+                console.error("Transaction failed: ", e);
+                showModal("Ошибка Транзакции", `Не удалось завершить сделку. ${e}`);
+            }
+        }
+        
+        // --- CHAT LOGIC ---
+
+        function openChatModal(orderId) {
+            currentOrder = allOrders[orderId];
+            if (!currentOrder) return showModal("Ошибка", "Заказ не найден.");
+
+            const productTitle = allProducts[currentOrder.product_id]?.title || 'Неизвестный товар';
+            document.getElementById('chat-order-title').textContent = `Чат по заказу: ${productTitle}`;
+            
+            // Set message input placeholder based on role
+            const isSeller = currentOrder.seller_id === userId;
+            const isBuyer = currentOrder.buyer_id === userId;
+            
+            if (isSeller) {
+                document.getElementById('chat-message-input').placeholder = "Напишите сообщение покупателю...";
+            } else if (isBuyer) {
+                 document.getElementById('chat-message-input').placeholder = "Напишите сообщение продавцу...";
+            } else {
+                 document.getElementById('chat-message-input').placeholder = "Нет доступа к чату.";
+                 document.getElementById('send-chat-btn').disabled = true;
+            }
+
+            renderChatHistory(currentOrder);
+            document.getElementById('order-chat-modal').classList.remove('hidden');
+            document.getElementById('chat-message-input').focus();
+        }
+
+        function renderChatHistory(order) {
+            const chatContainer = document.getElementById('chat-history-container');
+            chatContainer.innerHTML = '';
+            
+            const chatMessages = order.chat || [];
+
+            // Sort messages by timestamp, handling Firestore Timestamps and nulls
+            const sortedMessages = chatMessages.sort((a, b) => {
+                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                return timeA - timeB;
+            });
+            
+            sortedMessages.forEach(msg => {
+                const isSelf = msg.sender_id === userId;
+                const isSystem = msg.sender_id === 'SYSTEM';
+
+                let bubbleClass = isSelf ? 'chat-bubble-self ml-auto' : 'chat-bubble-other mr-auto';
+                let senderName = msg.sender_name || (isSelf ? 'Я' : 'Собеседник');
+                let time = '';
+                
+                if (msg.timestamp && msg.timestamp.toDate) {
+                    time = msg.timestamp.toDate().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                }
+
+                if (isSystem) {
+                    chatContainer.innerHTML += `
+                        <div class="text-center text-xs text-gray-500 italic">
+                            [${time}] ${msg.message}
+                        </div>
+                    `;
+                } else {
+                    chatContainer.innerHTML += `
+                        <div class="flex ${isSelf ? 'justify-end' : 'justify-start'}">
+                            <div class="max-w-xs sm:max-w-md p-3 rounded-xl ${bubbleClass}">
+                                <div class="font-bold text-xs ${isSelf ? 'text-indigo-200' : 'text-gray-600'} mb-1">${senderName}</div>
+                                <p class="text-sm break-words">${msg.message}</p>
+                                <span class="block text-right text-[10px] opacity-70 mt-1">${time}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            // Scroll to bottom after rendering
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendChatMessage() {
+            if (!currentOrder) return showModal("Ошибка", "Нет активного заказа для чата.");
+
+            const input = document.getElementById('chat-message-input');
+            const message = input.value.trim();
+
+            if (!message) return;
+            
+            const senderName = allSellers[userId]?.username || `Пользователь ${userId.substring(0, 5)}`;
+            const orderRef = doc(db, ORDERS_PATH, currentOrder.id);
+            
+            const newMessage = {
+                sender_id: userId,
+                sender_name: senderName,
+                message: message,
+                timestamp: serverTimestamp()
+            };
+
+            try {
+                await updateDoc(orderRef, {
+                    chat: arrayUnion(newMessage)
+                });
+                input.value = ''; // Clear input on success
+            } catch (e) {
+                console.error("Error sending message:", e);
+                showModal("Ошибка Отправки", "Не удалось отправить сообщение.");
+            }
+        }
+
+        // --- INITIALIZATION ---
+        window.onload = initializeFirebase;
+
+        // Make functions globally accessible for inline handlers
+        window.setView = setView;
+        window.buyProduct = buyProduct;
+        window.openChatModal = openChatModal;
+        window.sendChatMessage = sendChatMessage;
+        window.renderNewProductForm = renderNewProductForm;
+        window.addNewProduct = addNewProduct;
+        window.completeOrder = completeOrder;
+        window.confirmCompletion = confirmCompletion;
+        window.deleteProduct = deleteProduct;
+
+    </script>
+</body>
+</html>
