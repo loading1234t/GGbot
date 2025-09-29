@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 # --- КОНФИГУРАЦИЯ ---
 # !!! ВСТАВЬТЕ СЮДА ВАШ ТОКЕН, ПОЛУЧЕННЫЙ ОТ @BotFather !!!
 # Замените этот текст на ваш реальный токен бота
-BOT_TOKEN = "ВСТАВЬТЕ_ВАШ_ТОКЕН_СЮДА" 
+BOT_TOKEN = "8437913597:AAH6wHkEGEnqnMaaohM1bisPxWBIEsEQvIQ" 
 
 # URL вашего WebApp (сайта на GitHub Pages)
 WEB_APP_URL = "https://loading1234t.github.io/GGbot/"
@@ -50,7 +50,7 @@ async def command_start_handler(message: types.Message):
 
 # --- ЗАПУСК БОТА ---
 async def main():
-    if BOT_TOKEN == "ВСТАВЬТЕ_ВАШ_ТОКЕН_СЮДА":
+    if BOT_TOKEN == "8437913597:AAH6wHkEGEnqnMaaohM1bisPxWBIEsEQvIQ":
         print("!!! ОШИБКА: Пожалуйста, замените 'ВСТАВЬТЕ_ВАШ_ТОКЕН_СЮДА' на реальный токен вашего бота.")
         return
         
